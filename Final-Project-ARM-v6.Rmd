@@ -1,0 +1,1867 @@
+---
+title: "IST 707 Final Project"
+author: "Your Name"
+date: "2024-08-06"
+
+---
+
+```{r}
+library(arules)
+library(arulesViz)
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+library(cluster)
+library(factoextra)
+library(mclust)
+library(gridExtra)
+library(readr)
+library(reshape2)
+library(fmsb)
+library(GGally)
+library(Rtsne)
+library(pheatmap)
+library(flexclust)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(ggplot2)
+library(tidyr)
+library(dendextend)
+library(e1071)
+library(klaR)
+
+
+
+# Load the data
+studentdata <- read.csv <- read_csv("C:/Users/gbermude/OneDrive - Syracuse University/IST 707/Student_performance_data.csv")
+summary(studentdata)
+
+# Check for missing values and data types
+str(studentdata)
+
+sum(is.na(studentdata))
+
+continuous_vars <- sapply(studentdata, is.numeric)
+
+
+# Identify numerical columns
+numerical_cols <- sapply(studentdata, is.numeric)
+
+
+```
+```{r}
+#EDA
+# Summary statistics
+summary_stats <- summary(studentdata)
+print(summary_stats)
+
+# Distribution plots for numerical variables
+numerical_vars <- c('Age', 'StudyTimeWeekly', 'Absences', 'GPA')
+
+# Plotting distributions
+plots <- list()
+for (var in numerical_vars) {
+  p <- ggplot(studentdata, aes_string(x = var)) +
+    geom_histogram(aes(y = ..density..), bins = 30, fill = "skyblue", color = "black") +
+    geom_density(color = "red") +
+    ggtitle(paste("Distribution of", var)) +
+    theme_minimal()
+  plots[[var]] <- p
+}
+
+# Arrange plots in a grid
+do.call(grid.arrange, plots)
+
+# Bar plots for categorical variables
+categorical_vars <- c('Gender', 'Ethnicity', 'ParentalEducation', 'Tutoring', 'ParentalSupport',
+                      'Extracurricular', 'Sports', 'Music', 'Volunteering', 'GradeClass')
+
+# Plotting counts
+plots <- list()
+for (var in categorical_vars) {
+  p <- ggplot(studentdata, aes_string(x = var)) +
+    geom_bar(fill = "skyblue", color = "black") +
+    ggtitle(paste("Count of", var)) +
+    theme_minimal()
+  plots[[var]] <- p
+}
+
+# Arrange plots in a grid
+do.call(grid.arrange, plots)
+
+# Correlation matrix for numerical variables
+numeric_data <- studentdata %>% select(Age, StudyTimeWeekly, Absences, GPA)
+correlation_matrix <- cor(numeric_data)
+
+# Plotting correlation matrix
+corrplot(correlation_matrix, method = "color", addCoef.col = "black", tl.col = "black", number.cex = 0.7)
+
+# Alternatively, using GGally for a comprehensive pair plot
+#ggpairs(numeric_data)
+
+# Boxplots for numerical variables
+boxplots <- list()
+for (var in numerical_vars) {
+  p <- ggplot(studentdata, aes_string(x = "1", y = var)) +
+    geom_boxplot(fill = "skyblue", color = "black") +
+    ggtitle(paste("Boxplot of", var)) +
+    theme_minimal() +
+    theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank())
+  boxplots[[var]] <- p
+}
+
+# Arrange boxplots in a grid
+do.call(grid.arrange, boxplots)
+
+# Density plots for numerical variables
+density_plots <- list()
+for (var in numerical_vars) {
+  p <- ggplot(studentdata, aes_string(x = var)) +
+    geom_density(fill = "green", color = "black") +
+    ggtitle(paste("Density Plot of", var)) +
+    theme_minimal()
+  density_plots[[var]] <- p
+}
+
+# Arrange density plots in a grid
+do.call(grid.arrange, density_plots)
+
+
+# Summary statistics for each group
+grouped_summary <- studentdata %>%
+  group_by(Gender) %>%
+  summarise(
+    Age_Mean = mean(Age, na.rm = TRUE),
+    StudyTimeWeekly_Mean = mean(StudyTimeWeekly, na.rm = TRUE),
+    Absences_Mean = mean(Absences, na.rm = TRUE),
+    GPA_Mean = mean(GPA, na.rm = TRUE)
+  )
+
+print(grouped_summary)
+
+
+```
+
+```{r}
+
+# Normalize the continuous variables
+studentdata <- studentdata %>%
+  mutate(Age = scale(Age),
+         StudyTimeWeekly = scale(StudyTimeWeekly),
+         Absences = scale(Absences),
+         GPA = scale(GPA))
+
+# Convert categorical variables to factors
+studentdata$ParentalEducation <- factor(studentdata$ParentalEducation, levels = c(0, 1, 2, 3, 4),
+                                 labels = c("None", "High School", "Some College", "Bachelor's", "Higher"))
+
+studentdata$Gender <- factor(studentdata$Gender, levels = c(0, 1), labels = c("Male", "Female"))
+studentdata$Ethnicity <- factor(studentdata$Ethnicity, levels = c(0, 1, 2, 3), labels = c("Caucasian", "African American", "Asian", "Other"))
+studentdata$ParentalEducation <- factor(studentdata$ParentalEducation)
+studentdata$Tutoring <- factor(studentdata$Tutoring, levels = c(0, 1), labels = c("No", "Yes"))
+studentdata$ParentalSupport <- factor(studentdata$ParentalSupport, levels = c(0, 1, 2, 3, 4), labels = c("None", "Low", "Moderate", "High", "Very High"))
+studentdata$Extracurricular <- factor(studentdata$Extracurricular, levels = c(0, 1), labels = c("No", "Yes"))
+studentdata$Sports <- factor(studentdata$Sports, levels = c(0, 1), labels = c("No", "Yes"))
+studentdata$Music <- factor(studentdata$Music, levels = c(0, 1), labels = c("No", "Yes"))
+studentdata$Volunteering <- factor(studentdata$Volunteering, levels = c(0, 1), labels = c("No", "Yes"))
+studentdata$GradeClass <- factor(studentdata$GradeClass, levels = c(0, 1, 2, 3, 4), labels = c("A", "B", "C", "D", "F"))
+
+# Ensure numeric columns are numeric
+studentdata$Age <- as.numeric(studentdata$Age)
+studentdata$StudyTimeWeekly <- as.numeric(studentdata$StudyTimeWeekly)
+studentdata$Absences <- as.numeric(studentdata$Absences)
+studentdata$GPA <- as.numeric(studentdata$GPA)
+
+
+# Discretize continuous variables
+studentdata <- studentdata %>%
+  mutate(
+    AgeGroup = cut(Age, 
+                   breaks = quantile(Age, probs = seq(0, 1, length.out = 4)), 
+                   include.lowest = TRUE, 
+                   labels = c("Youth", "Teen", "Young Adult")),
+    
+    StudyTimeCategory = cut(StudyTimeWeekly, 
+                            breaks = quantile(StudyTimeWeekly, probs = seq(0, 1, length.out = 4)), 
+                            include.lowest = TRUE, 
+                            labels = c("Low", "Medium", "High")),
+    
+    AbsenceRange = cut(Absences, 
+                       breaks = quantile(Absences, probs = seq(0, 1, length.out = 4)), 
+                       include.lowest = TRUE, 
+                       labels = c("Low", "Medium", "High")),
+    
+    GPACategory = cut(GPA, 
+                      breaks = quantile(GPA, probs = seq(0, 1, length.out = 5)), 
+                      include.lowest = TRUE, 
+                      labels = c("Below Average", "Average", "High", "Very High"))
+  )
+
+
+# Check and fix duplicate factor levels
+studentdata <- studentdata %>%
+  mutate(across(where(is.factor), ~factor(.)))
+
+
+# Select relevant columns for ARM
+studentdata_arm <- studentdata %>%
+  select(AgeGroup, StudyTimeCategory, GPACategory, AbsenceRange,
+         Gender, Ethnicity, ParentalEducation, Tutoring, ParentalSupport, 
+         Extracurricular, Sports, Music, Volunteering, GradeClass)
+
+# Display the first few rows to check the selected columns
+head(studentdata_arm)
+
+# Convert data to transactions
+studentdata_transactions <- as(studentdata_arm, "transactions")
+
+# View summary of transactions
+summary(studentdata_transactions)
+
+# Perform association rule mining using the Apriori algorithm
+rules <- apriori(studentdata_transactions, 
+                 parameter = list(support = 0.01, confidence = 0.6))
+
+# Inspect the top 10 rules
+inspect(sort(rules, by = "lift")[1:10])
+
+# Filter and sort the rules
+#rules with high lift
+rules_sorted_by_lift <- sort(rules, by = "lift", decreasing = TRUE)
+inspect(head(rules_sorted_by_lift, 10))
+
+#rules with high confidence
+rules_sorted_by_confidence <- sort(rules, by = "confidence", decreasing = TRUE)
+inspect(head(rules_sorted_by_confidence, 10))
+
+#rules with high support
+rules_sorted_by_support <- sort(rules, by = "support", decreasing = TRUE)
+inspect(head(rules_sorted_by_support, 10))
+
+```
+```{r}
+# Graph-based Visualization
+plot(rules[1:10], method = "graph", control = list(type = "items"))
+
+# Sort rules by confidence, lift, and support
+rules_conf <- sort(rules, by = "confidence", decreasing = TRUE)
+rules_lift <- sort(rules, by = "lift", decreasing = TRUE)
+rules_support <- sort(rules, by = "support", decreasing = TRUE)
+
+# Visualize top 10 rules by confidence
+plot(rules_conf[1:10], method = "graph", control = list(type = "items"))
+plot(rules_conf[1:10], method = "scatterplot", measure = c("support", "confidence"), shading = "lift")
+plot(rules_conf[1:10], method = "grouped")
+
+# Visualize top 10 rules by lift
+plot(rules_lift[1:10], method = "graph", control = list(type = "items"))
+plot(rules_lift[1:10], method = "scatterplot", measure = c("support", "confidence"), shading = "lift")
+#plot(rules_lift[1:10], method = "grouped")
+
+# Visualize top 10 rules by support
+plot(rules_support[1:10], method = "graph", control = list(type = "items"))
+plot(rules_support[1:10], method = "scatterplot", measure = c("support", "confidence"), shading = "lift")
+
+```
+```{r}
+# Split the data into training and testing sets
+set.seed(123) # For reproducibility
+sample_index <- sample(seq_len(nrow(studentdata)), size = 0.7 * nrow(studentdata))
+train_data <- studentdata[sample_index, ]
+test_data <- studentdata[-sample_index, ]
+```
+
+
+```{r}
+#Decision tree first try out without GPA
+
+# Build the decision tree model using discretized variables
+tree_model_1 <- rpart(GradeClass ~ Gender + Ethnicity + ParentalEducation + Tutoring + ParentalSupport + 
+                                 Extracurricular + Sports + Music + Volunteering + Absences + StudyTimeWeekly + Age,
+                                 data = train_data, method = "class")
+
+# Print the summary of the initial tree model
+cat("Initial Decision Tree Model Summary:\n")
+summary(tree_model_1)
+
+# Plot the initial decision tree
+rpart.plot(tree_model_1, type = 4, extra = 104, main = "Initial Decision Tree for GradeClass Without GPA")
+
+#predictions_initial <- factor(predictions_initial, levels = levels(test_data$GradeClass))
+#test_data$GradeClass <- factor(test_data$GradeClass)
+
+
+# Make predictions using the initial model
+predictions_initial <- predict(tree_model_1, test_data, type = "class")
+
+# Create a confusion matrix for the initial model
+conf_matrix_initial <- confusionMatrix(predictions_initial, test_data$GradeClass)
+cat("Performance Metrics for Initial Model:\n")
+print(conf_matrix_initial)
+
+# Define a grid of hyperparameters to tune (only cp)
+tune_grid <- expand.grid(cp = seq(0.01, 0.1, by = 0.01))
+
+# Define train control for cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Fit the model again with filtered training data
+tuned_dt_model_1 <- train(GradeClass ~ Gender + Ethnicity + ParentalEducation + Tutoring + ParentalSupport + 
+                                 Extracurricular + Sports + Music + Volunteering + Absences + StudyTimeWeekly + Age,
+                        data = train_data,
+                        method = "rpart",
+                        trControl = train_control,
+                        tuneGrid = tune_grid)
+                        #control = rpart.control(minsplit = 2))  # Set minsplit in rpart.control
+
+# Visualize the tuned decision tree
+rpart.plot(tuned_dt_model_1$finalModel, type = 4, extra = 104, main = "Tuned Decision Tree for GradeClass Without GPA")
+
+# Make predictions using the tuned model
+predictions_tuned <- predict(tuned_dt_model_1, test_data, type = "raw")
+
+# Create a confusion matrix for the tuned model
+confusion_matrix_tuned <- confusionMatrix(predictions_tuned, test_data$GradeClass)
+cat("Confusion Matrix for Tuned Model:\n")
+print(confusion_matrix_tuned)
+
+# Calculate variable importance
+importance <- varImp(tuned_dt_model_1, scale = FALSE)
+
+# Convert the importance data to a data frame
+importance_df <- as.data.frame(importance$importance)
+
+# Add variable names to the data frame
+importance_df$Variable <- rownames(importance_df)
+
+# Plot variable importance with colors
+ggplot(importance_df, aes(x = reorder(Variable, Overall), y = Overall, fill = Overall)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  xlab("Variable") +
+  ylab("Importance") +
+  ggtitle("Variable Importance from Tuned Decision Tree Model") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Extracting the metrics for comparison
+initial_metrics <- conf_matrix_initial$byClass
+tuned_metrics <- confusion_matrix_tuned$byClass
+
+# Combine metrics into a data frame for comparison
+metrics_comparison <- data.frame(
+  Metric = rownames(initial_metrics),
+  Initial_Model = initial_metrics,
+  Tuned_Model = tuned_metrics
+)
+
+# Print the comparison of metrics
+cat("Comparison of Initial and Tuned Model Metrics:\n")
+print(metrics_comparison)
+```
+
+```{r}
+#Decision tree with GPA
+
+# Build the decision tree model using discretized variables
+tree_model_2 <- rpart(GradeClass ~ Gender + Ethnicity + ParentalEducation + Tutoring + ParentalSupport + 
+                                 Extracurricular + Sports + Music + Volunteering + Absences + GPA + StudyTimeWeekly + Age, 
+                                 data = train_data, method = "class")
+
+# Print the summary of the initial tree model
+cat("Initial Decision Tree Model Summary:\n")
+summary(tree_model_2)
+
+# Plot the initial decision tree
+rpart.plot(tree_model_2, type = 4, extra = 104, main = "Initial Decision Tree for GradeClass With GPA")
+
+# Make predictions using the initial model
+predictions_initial <- predict(tree_model_2, test_data, type = "class")
+
+# Create a confusion matrix for the initial model
+conf_matrix_initial <- confusionMatrix(predictions_initial, test_data$GradeClass)
+cat("Performance Metrics for Initial Model:\n")
+print(conf_matrix_initial)
+
+# Define a grid of hyperparameters to tune (only cp)
+tune_grid <- expand.grid(cp = seq(0.01, 0.1, by = 0.01))
+
+# Define train control for cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Fit the model again with filtered training data
+tuned_dt_model_2 <- train(GradeClass ~ Gender + Ethnicity + ParentalEducation + Tutoring + ParentalSupport + 
+                                 Extracurricular + Sports + Music + Volunteering + Absences+ GPA + StudyTimeWeekly + Age,
+                        data = train_data,
+                        method = "rpart",
+                        trControl = train_control,
+                        tuneGrid = tune_grid,
+                        control = rpart.control(minsplit = 2))  # Set minsplit in rpart.control
+
+# Visualize the tuned decision tree
+rpart.plot(tuned_dt_model_2$finalModel, type = 4, extra = 104, main = "Tuned Decision Tree for GradeClass With GPA")
+
+# Make predictions using the tuned model
+predictions_tuned <- predict(tuned_dt_model_2, test_data, type = "raw")
+
+# Create a confusion matrix for the tuned model
+confusion_matrix_tuned <- confusionMatrix(predictions_tuned, test_data$GradeClass)
+cat("Confusion Matrix for Tuned Model:\n")
+print(confusion_matrix_tuned)
+
+# Calculate variable importance
+importance <- varImp(tuned_dt_model_2, scale = FALSE)
+
+# Convert the importance data to a data frame
+importance_df <- as.data.frame(importance$importance)
+
+# Add variable names to the data frame
+importance_df$Variable <- rownames(importance_df)
+
+# Plot variable importance with colors
+ggplot(importance_df, aes(x = reorder(Variable, Overall), y = Overall, fill = Overall)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  xlab("Variable") +
+  ylab("Importance") +
+  ggtitle("Variable Importance from Tuned Decision Tree Model") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Extracting the metrics for comparison
+initial_metrics <- conf_matrix_initial$byClass
+tuned_metrics <- confusion_matrix_tuned$byClass
+
+# Combine metrics into a data frame for comparison
+metrics_comparison <- data.frame(
+  Metric = rownames(initial_metrics),
+  Initial_Model = initial_metrics,
+  Tuned_Model = tuned_metrics
+)
+
+# Print the comparison of metrics
+cat("Comparison of Initial and Tuned Model Metrics:\n")
+print(metrics_comparison)
+```
+
+```{r}
+# Build the decision tree model using discretized variables
+tree_model_3 <- rpart(GradeClass ~ Gender + Ethnicity + ParentalEducation + Tutoring + ParentalSupport + 
+                                 Extracurricular + Sports + Music + Volunteering + Absences + GPA + StudyTimeWeekly + Age, 
+                                 data = train_data, method = "class")
+
+# Print the summary of the initial tree model
+cat("Initial Decision Tree Model Summary:\n")
+summary(tree_model_3)
+
+# Plot the initial decision tree
+rpart.plot(tree_model_2, type = 4, extra = 104, main = "Initial Decision Tree for GradeClass With GPA")
+
+# Make predictions using the initial model
+predictions_initial <- predict(tree_model_2, test_data, type = "class")
+
+# Create a confusion matrix for the initial model
+conf_matrix_initial <- confusionMatrix(predictions_initial, test_data$GradeClass)
+cat("Performance Metrics for Initial Model:\n")
+print(conf_matrix_initial)
+
+# Define a grid of hyperparameters to tune
+tune_grid <- expand.grid(cp = seq(0.001, 0.05, by = 0.001),
+                         minsplit = c(2, 5, 10), 
+                         maxdepth = c(5, 10, 15))
+
+# Define train control for cross-validation with increased folds
+train_control <- trainControl(method = "cv", number = 15)
+
+# Fit the model again with filtered training data
+tuned_dt_model_3 <- train(GradeClass ~ Gender + Ethnicity + ParentalEducation + Tutoring + ParentalSupport + 
+                                 Extracurricular + Sports + Music + Volunteering + Absences+ GPA + StudyTimeWeekly + Age,
+                        data = train_data,
+                        method = "rpart",
+                        trControl = train_control,
+                        tuneGrid = tune_grid,
+                        control = rpart.control(minsplit = 2))  # Adjust minsplit in tune_grid instead of here
+
+# Visualize the tuned decision tree
+rpart.plot(tuned_dt_model_2$finalModel, type = 4, extra = 104, main = "Tuned Decision Tree for GradeClass With GPA")
+
+# Make predictions using the tuned model
+predictions_tuned <- predict(tuned_dt_model_2, test_data, type = "raw")
+
+# Create a confusion matrix for the tuned model
+confusion_matrix_tuned <- confusionMatrix(predictions_tuned, test_data$GradeClass)
+cat("Confusion Matrix for Tuned Model:\n")
+print(confusion_matrix_tuned)
+
+# Calculate variable importance
+importance <- varImp(tuned_dt_model_2, scale = FALSE)
+
+# Convert the importance data to a data frame
+importance_df <- as.data.frame(importance$importance)
+
+# Add variable names to the data frame
+importance_df$Variable <- rownames(importance_df)
+
+# Plot variable importance with colors
+ggplot(importance_df, aes(x = reorder(Variable, Overall), y = Overall, fill = Overall)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  xlab("Variable") +
+  ylab("Importance") +
+  ggtitle("Variable Importance from Tuned Decision Tree Model") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Extracting the metrics for comparison
+initial_metrics <- conf_matrix_initial$byClass
+tuned_metrics <- confusion_matrix_tuned$byClass
+
+# Combine metrics into a data frame for comparison
+metrics_comparison <- data.frame(
+  Metric = rownames(initial_metrics),
+  Initial_Model = initial_metrics,
+  Tuned_Model = tuned_metrics
+)
+
+# Print the comparison of metrics
+cat("Comparison of Initial and Tuned Model Metrics:\n")
+print(metrics_comparison)
+
+
+```
+```{r}
+
+# Load necessary libraries
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(ggplot2)
+
+# Decision Tree with GPA and Discretized Variables
+
+# Build the initial decision tree model using discretized variables
+tree_model_discretized <- rpart(GradeClass ~ Gender + Ethnicity + ParentalEducation + Tutoring + ParentalSupport + 
+   GPACategory + AbsenceRange + StudyTimeCategory + AgeGroup, 
+   data = train_data, method = "class", control = rpart.control(cp = 0.01))
+
+# Print the summary of the initial tree model
+cat("Initial Decision Tree Model Summary:\n")
+summary(tree_model_discretized)
+
+# Plot the initial decision tree
+rpart.plot(tree_model_discretized, type = 4, extra = 104, main = "Initial Decision Tree for GradeClass")
+
+# Make predictions using the initial model
+predictions_initial <- predict(tree_model_discretized, test_data, type = "class")
+
+# Create a confusion matrix for the initial model
+conf_matrix_initial <- confusionMatrix(predictions_initial, test_data$GradeClass)
+cat("Performance Metrics for Initial Model:\n")
+print(conf_matrix_initial)
+
+# Define a grid of hyperparameters to tune (expanding the cp range for better tuning)
+tune_grid <- expand.grid(cp = seq(0.001, 0.1, by = 0.005))
+
+# Define train control for cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Fit the model again with tuning
+tuned_dt_model <- train(GradeClass ~ Gender + Ethnicity + ParentalEducation + Tutoring + ParentalSupport +  
+                        GPACategory + AbsenceRange + StudyTimeCategory + AgeGroup, 
+                        data = train_data,
+                        method = "rpart",
+                        trControl = train_control,
+                        tuneGrid = tune_grid,
+                        control = rpart.control(minsplit = 10))  # Increased minsplit to avoid overfitting
+
+# Visualize the tuned decision tree
+rpart.plot(tuned_dt_model$finalModel, type = 4, extra = 104, main = "Tuned Decision Tree for GradeClass")
+
+# Make predictions using the tuned model
+predictions_tuned <- predict(tuned_dt_model, test_data, type = "raw")
+
+# Create a confusion matrix for the tuned model
+confusion_matrix_tuned <- confusionMatrix(predictions_tuned, test_data$GradeClass)
+cat("Confusion Matrix for Tuned Model:\n")
+print(confusion_matrix_tuned)
+
+# Calculate variable importance
+importance <- varImp(tuned_dt_model, scale = FALSE)
+
+# Convert the importance data to a data frame
+importance_df <- as.data.frame(importance$importance)
+
+# Add variable names to the data frame
+importance_df$Variable <- rownames(importance_df)
+
+# Plot variable importance with colors
+ggplot(importance_df, aes(x = reorder(Variable, Overall), y = Overall, fill = Overall)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  xlab("Variable") +
+  ylab("Importance") +
+  ggtitle("Variable Importance from Tuned Decision Tree Model") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Extracting the metrics for comparison
+initial_metrics <- conf_matrix_initial$byClass
+tuned_metrics <- confusion_matrix_tuned$byClass
+
+# Combine metrics into a data frame for comparison
+metrics_comparison <- data.frame(
+  Metric = rownames(initial_metrics),
+  Initial_Model = initial_metrics,
+  Tuned_Model = tuned_metrics
+)
+
+# Print the comparison of metrics
+cat("Comparison of Initial and Tuned Model Metrics:\n")
+print(metrics_comparison)
+
+
+# Decision Tree with Only Important Variables
+
+# Build the decision tree model using only important variables
+tree_model_varimp <- rpart(GPACategory ~ Tutoring + ParentalSupport + 
+                                  AbsenceRange + StudyTimeCategory, 
+                                 data = train_data, method = "class", control = rpart.control(cp = 0.01))
+
+# Print the summary of the initial tree model
+cat("Initial Decision Tree Model Summary:\n")
+summary(tree_model_varimp)
+
+# Plot the initial decision tree
+rpart.plot(tree_model_varimp, type = 4, extra = 104, main = "Initial Decision Tree for GPACategory")
+
+# Make predictions using the initial model
+predictions_initial <- predict(tree_model_varimp, test_data, type = "class")
+
+# Create a confusion matrix for the initial model
+conf_matrix_initial <- confusionMatrix(predictions_initial, test_data$GPACategory)
+cat("Performance Metrics for Initial Model:\n")
+print(conf_matrix_initial)
+
+# Define a grid of hyperparameters to tune (expanding the cp range for better tuning)
+tune_grid <- expand.grid(cp = seq(0.001, 0.1, by = 0.005))
+
+# Fit the model again with tuning
+tuned_dt_model_varimp <- train(GPACategory ~ Tutoring + ParentalSupport + 
+                                  AbsenceRange + StudyTimeCategory,
+                                 data = train_data,
+                                 method = "rpart",
+                                 trControl = train_control,
+                                 tuneGrid = tune_grid,
+                                 control = rpart.control(minsplit = 10))  # Increased minsplit to avoid overfitting
+
+# Visualize the tuned decision tree
+rpart.plot(tuned_dt_model_varimp$finalModel, type = 4, extra = 104, main = "Tuned Decision Tree for GPACategory")
+
+# Make predictions using the tuned model
+predictions_tuned_varimp <- predict(tuned_dt_model_varimp, test_data, type = "raw")
+
+# Create a confusion matrix for the tuned model
+confusion_matrix_tuned_varimp <- confusionMatrix(predictions_tuned_varimp, test_data$GPACategory)
+cat("Confusion Matrix for Tuned Model:\n")
+print(confusion_matrix_tuned_varimp)
+
+# Calculate variable importance
+importance_varimp <- varImp(tuned_dt_model_varimp, scale = FALSE)
+
+# Convert the importance data to a data frame
+importance_df_varimp <- as.data.frame(importance_varimp$importance)
+
+# Add variable names to the data frame
+importance_df_varimp$Variable <- rownames(importance_df_varimp)
+
+# Plot variable importance with colors
+ggplot(importance_df_varimp, aes(x = reorder(Variable, Overall), y = Overall, fill = Overall)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  xlab("Variable") +
+  ylab("Importance") +
+  ggtitle("Variable Importance from Tuned Decision Tree Model") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Extracting the metrics for comparison
+initial_metrics_varimp <- conf_matrix_initial$byClass
+tuned_metrics_varimp <- confusion_matrix_tuned_varimp$byClass
+
+# Combine metrics into a data frame for comparison
+metrics_comparison_varimp <- data.frame(
+  Metric = rownames(initial_metrics_varimp),
+  Initial_Model = initial_metrics_varimp,
+  Tuned_Model = tuned_metrics_varimp
+)
+
+# Print the comparison of metrics
+cat("Comparison of Initial and Tuned Model Metrics (Important Variables):\n")
+print(metrics_comparison_varimp)
+
+```
+```{r}
+# Fit the linear regression model
+regression_model <- lm(GPA ~ StudyTimeWeekly + Absences + ParentalEducation + Gender + Age, data = studentdata)
+
+# View the summary of the regression analysis
+summary(regression_model)
+
+```
+```{r}
+# Plot diagnostics
+par(mfrow = c(2, 2))  # Set up the plotting area
+plot(regression_model)
+
+```
+
+Predictions with the regression
+Data was already split into training (70%) and testing (30%) sets in previous analysis for the  desicion tree.
+Then, the linear regression model was fitted to the training data using relevant predictors.
+```{r}
+# Fit the linear regression model on the training data
+regression_model <- lm(GPA ~ StudyTimeWeekly + Absences + ParentalEducation + Gender + Age, data = train_data)
+
+# View the summary of the regression analysis
+cat("Regression Model Summary:\n")
+summary(regression_model)
+```
+The regression model was used to predict GPA on the test set. Performance metrics were used To evaluate how well the linear regression model is performing in predicting the students' GPA based on the given features.
+-MSE measures the average squared difference between the actual and predicted GPA values.
+-RMSE is the square root of MSE, representing the average magnitude of the errors in the same units as the GPA.
+-R-squared indicates the proportion of the variance in the dependent variable that is predictable from the independent variables.
+```{r}
+# Make predictions on the test data
+predictions_reg <- predict(regression_model, newdata = test_data)
+
+# Calculate performance metrics
+mse <- mean((predictions_reg - test_data$GPA)^2)  # Mean Squared Error
+rmse <- sqrt(mse)  # Root Mean Squared Error
+r_squared <- summary(regression_model)$r.squared  # R-squared
+
+# Print the performance metrics
+cat("Performance Metrics for the Regression Model:\n")
+cat("Mean Squared Error (MSE):", mse, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse, "\n")
+cat("R-squared (R^2):", r_squared, "\n")
+```
+A scatter plot of actual vs. predicted GPA values was plotted with a red dashed line representing the ideal scenario where predicted values perfectly match the actual values.
+```{r}
+# Plot Actual vs Predicted GPA
+ggplot(test_data, aes(x = predictions_reg, y = GPA)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Actual vs Predicted GPA",
+       x = "Predicted GPA",
+       y = "Actual GPA") +
+  theme_minimal()
+```
+
+The R2 =0.88 indicates that approximately 88% of the variance in the GPA is explained by the predictors in your model. The 
+𝑅2  value indicates that the model fits the data well, explaining a large proportion of the variance in GPA.
+The RMSE of 0.3491 suggests that, on average, the model’s predictions are off by about 0.35 GPA points.
+For a GPA measured on a scale of 0 to 4, then a prediction error of ±0.35 could be considered moderate. To improve prediction accuracy, other variables and/or models should be considered.
+
+In an attempt to improve the prediction results using the linear regression model, a new linear model was developed using all the variables available.
+```{r}
+# Fit the linear regression model on the training data
+regression_model_all <- lm(GPA ~ Gender + Ethnicity + ParentalEducation + Tutoring + ParentalSupport + 
+                                 Extracurricular + Sports + Music + Volunteering + Absences + 
+                                 StudyTimeWeekly + Age, data = train_data)
+
+# View the summary of the regression analysis
+cat("Regression Model with all the variables Summary:\n")
+summary(regression_model_all)
+# Make predictions on the test data
+predictions_reg_all <- predict(regression_model_all, newdata = test_data)
+
+# Calculate performance metrics
+mse <- mean((predictions_reg_all - test_data$GPA)^2)  # Mean Squared Error
+rmse <- sqrt(mse)  # Root Mean Squared Error
+r_squared <- summary(regression_model_all)$r.squared  # R-squared
+
+# Print the performance metrics
+cat("Performance Metrics for the Regression Model with all the variables:\n")
+cat("Mean Squared Error (MSE):", mse, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse, "\n")
+cat("R-squared (R^2):", r_squared, "\n")
+# Plot Actual vs Predicted GPA
+ggplot(test_data, aes(x = predictions_reg_all, y = GPA)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Actual vs Predicted GPA",
+       x = "Predicted GPA",
+       y = "Actual GPA") +
+  theme_minimal()
+```
+Model interpretation:
+Intercept: The intercept is -0.6221, which represents the predicted GPA when all predictors are at their reference levels.
+Gender: The coefficient for GenderFemale is 0.01685, but it is not statistically significant, indicating that gender might not have a strong effect on GPA in this model.
+Ethnicity: The coefficients for ethnicity categories (African American, Asian, Other) are small and not statistically significant, suggesting that ethnicity does not have a strong impact on GPA after controlling for other variables.
+Parental Education: None of the parental education levels are statistically significant, indicating that, in this model, parental education might not be a strong predictor of GPA.
+Tutoring: The coefficient for TutoringYes is 0.2685, which is highly significant. This suggests that students who receive tutoring are predicted to have a GPA that is, on average, 0.2685 points higher than those who do not, holding other factors constant.
+Parental Support: The coefficients for all levels of parental support are significant and positive, with higher levels of support associated with higher GPAs. For example, students with "Very High" parental support are predicted to have a GPA that is 0.6737 points higher than those with "None" parental support.
+Extracurricular Activities: Participation in extracurricular activities is associated with a 0.2043 increase in GPA, and this is statistically significant.
+Sports: Participation in sports is associated with a 0.2078 increase in GPA, and this is also statistically significant.
+Music: Participation in music is associated with a 0.1496 increase in GPA, which is statistically significant.
+Volunteering: The coefficient for volunteering is very small and not significant.
+Absences: The coefficient for absences is -0.9198, which is highly significant. This means that each additional absence is associated with a decrease in GPA by approximately 0.92 points, highlighting the strong negative impact of absences on academic performance.
+Study Time Weekly: The coefficient is 0.1781, and it is statistically significant. This indicates that each additional unit of weekly study time is associated with a 0.178 increase in GPA, holding other factors constant.
+Age: The coefficient for age is -0.0108, which is statistically significant. This negative coefficient suggests that older students might have slightly lower GPAs, though the effect is small.
+
+The Multiple R-squared value of 0.9542 indicates that approximately 95.42% of the variance in GPA is explained by the model. The F-statistic and its associated p-value show that the model as a whole is statistically significant.
+
+The MSE is 0.0474, indicating that the average squared difference between the actual and predicted GPA values is quite small. This suggests that the model's predictions are close to the actual values.
+
+The RMSE of 0.2178 is in the same units as GPA and represents the average prediction errorsuggesting that the model's predictions are off by about 0.22 GPA points, which is relatively low and indicates a high level of accuracy.
+
+Key predictors such as tutoring, parental support, extracurricular activities, sports, music, absences, and study time are significant and contribute meaningfully to predicting GPA.
+
+Overall, this regression model appears to be very strong in predicting students' GPAs based on the given variables.
+
+Areas for Improvement: While the model performs well overall, some predictors (e.g., gender, ethnicity, parental education, volunteering) are not significant and might not be contributing much to the model. Simplifying the model by removing these non-significant predictors coujld potentially improve interpretability without sacrificing much predictive power.
+
+#Refined model
+```{r}
+# Improved linear regression model with significant variables
+improved_regression_model <- lm(GPA ~ Tutoring + ParentalSupport + Extracurricular + 
+                                 Sports + Music + Absences + StudyTimeWeekly + Age, 
+                                 data = train_data)
+
+# View the summary of the improved regression model
+summary(improved_regression_model)
+
+# Predict on the test data using the improved model
+predictions_improved <- predict(improved_regression_model, newdata = test_data)
+
+# Calculate performance metrics for the improved model
+mse_improved <- mean((predictions_improved - test_data$GPA)^2)  # Mean Squared Error
+rmse_improved <- sqrt(mse_improved)  # Root Mean Squared Error
+r_squared_improved <- summary(improved_regression_model)$r.squared  # R-squared
+
+# Print the performance metrics
+cat("Performance Metrics for the Improved Regression Model:\n")
+cat("Mean Squared Error (MSE):", mse_improved, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse_improved, "\n")
+cat("R-squared (R^2):", r_squared_improved, "\n")
+```
+This approach simplified the model while retaining the variables that have the most impact on GPA, potentially leading to a more efficient and effective predictive model. The R-squared value was slightly lower than the original model, as some predictors were removed. However, it is still high, reflecting a strong model fit with approximately 95.40% of the variance in GPA is explained by the model. The RMSE and MSE results also remained about the same as in the original model.
+
+
+Clustering analysis
+```{r}
+#will likely need to scale the numerical data since there are so many categorical variables
+
+#remove student ID
+studentdata_cat <- studentdata[,c("Gender", "Ethnicity", "ParentalEducation", "Absences", "Tutoring", "ParentalSupport", "Extracurricular", "Sports", "Music", "Volunteering", "GradeClass")]
+#change the numerical variables to scaled values
+scaled_studentdata <- scale(studentdata[,c("Age", "StudyTimeWeekly", "GPA")])
+
+# 3. Convert the scaled matrix to a data frame and name the columns appropriately
+scaled_studentdata_df <- as.data.frame(scaled_studentdata)
+colnames(scaled_studentdata_df) <- c("Scaled_Age", "Scaled_StudyTimeWeekly", "Scaled_GPA")
+
+# 4. Combine categorical and scaled numerical data into one data frame
+preprocessed_studentdata <- cbind(studentdata_cat, scaled_studentdata_df)
+
+# View the combined data frame
+head(preprocessed_studentdata)
+
+```
+
+
+```{r}
+
+# Determine "Optimal" number of clusters
+# ANTIQUATED 
+
+fviz_nbclust(preprocessed_studentdata, FUN=hcut,method = "wss")
+fviz_nbclust(preprocessed_studentdata, FUN =hcut, method = "silhouette")
+
+```
+
+
+```{r}
+
+#visualizations show 2-10 clusters, based on wanting to predict grades, and given there are 5 grades that a student could receive, I will try 5 clusters first.
+# Set seed for fixed random seed
+
+# Check for NA values
+na_count <- sum(is.na(preprocessed_studentdata))
+cat("Number of NA values: ", na_count, "\n")
+
+preprocessed_studentdata <- preprocessed_studentdata[complete.cases(preprocessed_studentdata), ]
+# Impute NA and NaN values with the mean of the column
+preprocessed_studentdata <- preprocessed_studentdata %>% 
+  mutate(across(everything(), ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)))
+
+# Impute Inf values with a large number or a predefined threshold
+preprocessed_studentdata <- preprocessed_studentdata %>%
+  mutate(across(everything(), ~ ifelse(is.infinite(.), max(., na.rm = TRUE), .)))
+
+set.seed(123)
+Clusters <- kmeans(preprocessed_studentdata, 5)
+#assign clusters to documents
+preprocessed_studentdata$Clusters <- as.factor(Clusters$cluster)
+str(Clusters)
+Clusters$centers
+
+```
+
+
+```{r}
+
+# Add clusters to dataframe original dataframe with author name
+studentdata_2 <- studentdata
+
+studentdata_2$Clusters <- as.factor(Clusters$cluster)
+
+# Plot results
+clusplot(studentdata_2, studentdata_2$Clusters, color=TRUE, shade=TRUE, labels=0, lines=0)
+
+```
+
+
+```{r}
+
+ggplot(data=studentdata_2
+       , aes(x=GradeClass, fill=Clusters))+
+geom_bar(stat="count") +
+labs(title = "K = 5") +
+theme(plot.title = element_text(hjust=0.5), text=element_text(size=15))
+
+```
+
+
+```{r}
+
+centers <- as.data.frame(Clusters$centers)
+centers$Cluster <- factor(1:nrow(centers))
+
+centers_long <- centers %>% gather(Feature, Value, -Cluster)
+
+ggplot(centers_long, aes(x = Feature, y = Value, fill = Cluster)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  labs(title = "Cluster Centers", x = "Feature", y = "Value") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+HAC
+```{r}
+
+# Sample a subset of the data
+set.seed(123)  # For reproducibility
+sampled_indices <- sample(1:nrow(preprocessed_studentdata), 100)  # Adjust the number as needed
+sampled_data <- preprocessed_studentdata[sampled_indices, ]
+
+# Ensure that GradeClass is included in the sampled data
+sampled_data_with_labels <- sampled_data
+
+# Recalculate distance matrix and hierarchical clustering on the sampled data
+distance_sampled <- dist(sampled_data, method = "euclidean")
+HAC_sampled <- hclust(distance_sampled, method = "complete")
+
+
+# Create a dendrogram object
+dendro <- as.dendrogram(HAC_sampled)
+
+# Assign GradeClass as labels to the dendrogram
+labels(dendro) <- as.character(sampled_data_with_labels$GradeClass)
+
+# Plot the dendrogram with adjusted parameters
+plot(dendro, cex = 0.01, hang = -1, main = "Dendrogram of Grades Earned in Class")
+
+
+```
+
+The clustering results from the k-means analysis with k=5 clusters, based on the sampled dataset, reveal that clusters 1 and 4 are predominantly associated with students who failed at least one class. In contrast, students who achieved grades A to D are distributed across clusters 2 through 5. Notably, none of the students who earned an A are present in cluster 2, which suggests that this cluster is linked to poorer academic outcomes. The analysis of cluster centers indicates that absences have the highest average values in clusters 1 through 4, suggesting a significant relationship between frequent absences and failing grades. Conversely, students who received an A are in cluster 5, which shows the highest average for parental support, highlighting the importance of parental involvement in academic success. The hierarchical agglomerative clustering (HAC) dendrogram, created from the same sampled dataset and labeled with class grades, did not provide clear insights, as grades remained scattered across different clusters, making it difficult to identify specific attributes associated with academic performance.
+
+
+
+```{r}
+# Load necessary libraries
+library(caret)
+library(e1071)
+library(randomForest)
+library(class)
+library(rpart)
+library(mice)
+library(ggplot2)
+
+
+# Assuming 'GradeClass' is the target variable
+target_variable <- "GradeClass"
+features <- studentdata[, !names(studentdata) %in% target_variable]
+labels <- studentdata[[target_variable]]
+
+# Impute missing values
+imputed_data <- complete(mice(features, method = "pmm", m = 1))
+
+# Ensure all columns are numeric
+numeric_features <- sapply(studentdata, is.numeric)
+features_numeric <- studentdata[, numeric_features]
+
+# If necessary, impute missing values in the numeric features
+imputed_data_numeric <- complete(mice(features_numeric, method = "pmm", m = 1))
+
+# Standardize the numeric data
+preProcValues_numeric <- preProcess(imputed_data_numeric, method = c("center", "scale"))
+features_scaled_numeric <- predict(preProcValues_numeric, imputed_data_numeric)
+
+# Apply PCA for dimensionality reduction
+pca_model <- prcomp(features_scaled_numeric, scale. = TRUE)
+
+# Calculate explained variance and choose the number of components
+explained_variance <- cumsum(pca_model$sdev^2 / sum(pca_model$sdev^2))
+num_components <- which(explained_variance >= 0.95)[1]
+features_pca <- data.frame(pca_model$x[, 1:num_components])
+
+# Add the target variable back
+features_pca$GradeClass <- studentdata$GradeClass
+
+
+# Set seed for reproducibility
+set.seed(42)
+
+# Split the data into training and testing sets
+trainIndex <- createDataPartition(features_pca$GradeClass, p = .7, list = FALSE, times = 1)
+train_data <- features_pca[trainIndex, ]
+test_data <- features_pca[-trainIndex, ]
+
+# Initialize the models
+models <- list(
+  SVM = train(GradeClass ~ ., data = train_data, method = "svmLinear"),
+  Random_Forest = train(GradeClass ~ ., data = train_data, method = "rf"),
+  Naive_Bayes = train(GradeClass ~ ., data = train_data, method = "nb"),
+  kNN = train(GradeClass ~ ., data = train_data, method = "knn"),
+  Decision_Tree = train(GradeClass ~ ., data = train_data, method = "rpart")
+)
+
+# Initialize an empty list to store results
+results <- list()
+
+# Predict and evaluate models
+for (model_name in names(models)) {
+  model <- models[[model_name]]
+  predictions <- predict(model, test_data)
+  
+  # Get the confusion matrix and key metrics
+  cm <- confusionMatrix(predictions, test_data$GradeClass)
+  
+  # Store results
+  results[[model_name]] <- list(
+    Accuracy = cm$overall['Accuracy'],
+    Kappa = cm$overall['Kappa'],
+    Confusion_Matrix = cm$table
+  )
+  
+  # Print detailed output for each model
+  cat("\nModel:", model_name, "\n")
+  cat("Accuracy:", cm$overall['Accuracy'], "\n")
+  cat("Kappa:", cm$overall['Kappa'], "\n")
+  cat("Confusion Matrix:\n")
+  print(cm$table)
+}
+
+# Optionally, if you want to view all accuracies in one place
+accuracies <- sapply(results, function(res) res$Accuracy)
+print("Accuracies for all models:")
+print(accuracies)
+
+```
+```{r}
+# Load necessary libraries
+library(caret)
+library(ggplot2)
+library(e1071)  # For SVM
+library(randomForest)  # For Random Forest
+library(class)  # For k-NN
+library(rpart)  # For Decision Tree
+
+# Assuming train_data and test_data are already split, and GradeClass is your target variable
+
+# Train models
+svm_model <- train(GradeClass ~ ., data = train_data, method = "svmLinear")
+rf_model <- train(GradeClass ~ ., data = train_data, method = "rf")
+nb_model <- train(GradeClass ~ ., data = train_data, method = "nb")
+knn_model <- train(GradeClass ~ ., data = train_data, method = "knn")
+dt_model <- train(GradeClass ~ ., data = train_data, method = "rpart")
+
+# Make predictions on the test data
+svm_predictions <- predict(svm_model, test_data)
+rf_predictions <- predict(rf_model, test_data)
+nb_predictions <- predict(nb_model, test_data)
+knn_predictions <- predict(knn_model, test_data)
+dt_predictions <- predict(dt_model, test_data)
+
+# Function to plot confusion matrix as a heatmap
+plot_confusion_matrix <- function(cm, title) {
+  cm_table <- as.table(cm$table)
+  cm_df <- as.data.frame(cm_table)
+  colnames(cm_df) <- c("Prediction", "Reference", "Freq")
+  
+  ggplot(data = cm_df, aes(x = Prediction, y = Reference)) +
+    geom_tile(aes(fill = Freq), color = "white") +
+    scale_fill_gradient(low = "white", high = "blue") +
+    geom_text(aes(label = Freq), vjust = 1) +
+    labs(title = title, x = "Predicted", y = "Actual") +
+    theme_minimal()
+}
+
+# Confusion matrices and heatmaps
+svm_cm <- confusionMatrix(svm_predictions, test_data$GradeClass)
+plot_confusion_matrix(svm_cm, "Confusion Matrix for SVM Model")
+
+rf_cm <- confusionMatrix(rf_predictions, test_data$GradeClass)
+plot_confusion_matrix(rf_cm, "Confusion Matrix for Random Forest Model")
+
+nb_cm <- confusionMatrix(nb_predictions, test_data$GradeClass)
+plot_confusion_matrix(nb_cm, "Confusion Matrix for Naive Bayes Model")
+
+knn_cm <- confusionMatrix(knn_predictions, test_data$GradeClass)
+plot_confusion_matrix(knn_cm, "Confusion Matrix for k-Nearest Neighbors Model")
+
+dt_cm <- confusionMatrix(dt_predictions, test_data$GradeClass)
+plot_confusion_matrix(dt_cm, "Confusion Matrix for Decision Tree Model")
+
+# Accuracy for each model
+accuracy_svm <- svm_cm$overall['Accuracy']
+accuracy_rf <- rf_cm$overall['Accuracy']
+accuracy_nb <- nb_cm$overall['Accuracy']
+accuracy_knn <- knn_cm$overall['Accuracy']
+accuracy_dt <- dt_cm$overall['Accuracy']
+
+# Create a DataFrame for accuracy comparison
+comparison_df <- data.frame(
+  Model = c("SVM", "Random Forest", "Naive Bayes", "kNN", "Decision Tree"),
+  Accuracy = c(accuracy_svm, accuracy_rf, accuracy_nb, accuracy_knn, accuracy_dt)
+)
+
+# Plot accuracy comparison
+ggplot(comparison_df, aes(x = Model, y = Accuracy, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Model Accuracy Comparison") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+```{r}
+#Tuning models
+# Load necessary libraries
+library(caret)
+
+# Define the control using a cross-validation
+train_control <- trainControl(method = "cv", number = 10)  # 10-fold cross-validation
+
+# Tune SVM with radial basis kernel
+svm_grid <- expand.grid(C = c(0.01, 0.1, 1, 10), 
+                        sigma = c(0.001, 0.01, 0.1))
+
+svm_tuned <- train(GradeClass ~ ., data = train_data, 
+                   method = "svmRadial", 
+                   tuneGrid = svm_grid, 
+                   trControl = train_control)
+
+print(svm_tuned)
+
+# Tune Random Forest
+rf_grid <- expand.grid(mtry = c(2, 4, 6, 8))
+
+rf_tuned <- train(GradeClass ~ ., data = train_data, 
+                  method = "rf", 
+                  tuneGrid = rf_grid, 
+                  trControl = train_control,
+                  ntree = 500)
+
+print(rf_tuned)
+
+# Tune Naive Bayes
+train_control <- trainControl(method = "cv", number = 10)
+
+# Define the tuning grid
+tune_grid <- expand.grid(fL = c(0, 0.5, 1), 
+                         usekernel = c(TRUE, FALSE), 
+                         adjust = c(1))  # You can modify the adjust values if needed
+
+# Train the Naive Bayes model
+nb_tuned <- train(GradeClass ~ ., data = train_data, 
+                  method = "nb", 
+                  trControl = train_control,
+                  tuneGrid = tune_grid)
+
+# View the results
+print(nb_tuned)
+
+# Check if nb_tuned was created successfully
+if (exists("nb_tuned")) {
+  print(nb_tuned$bestTune)
+} else {
+  cat("Naive Bayes model training failed or the object 'nb_tuned' does not exist.\n")
+}
+
+print(nb_tuned)
+
+# Tune kNN
+knn_grid <- expand.grid(k = c(3, 5, 7, 9))
+
+knn_tuned <- train(GradeClass ~ ., data = train_data, 
+                   method = "knn", 
+                   tuneGrid = knn_grid, 
+                   trControl = train_control)
+
+print(knn_tuned)
+
+# Tune Decision Tree
+dt_grid <- expand.grid(cp = c(0.01, 0.05, 0.1))
+
+dt_tuned <- train(GradeClass ~ ., data = train_data, 
+                  method = "rpart", 
+                  tuneGrid = dt_grid, 
+                  trControl = train_control)
+
+print(dt_tuned)
+# Print detailed output for the SVM model
+print(svm_tuned)                # General output
+print(svm_tuned$bestTune)       # Best model parameters
+print(svm_tuned$results)        # All tuning results
+print(svm_tuned$resample)       # Detailed cross-validation results
+print(svm_tuned$finalModel)     # The final fitted model
+if ("svmRadial" %in% methods(class = "train")) print(varImp(svm_tuned))  # Variable importance if available
+
+# Print detailed output for the Random Forest model
+print(rf_tuned)
+print(rf_tuned$bestTune)
+print(rf_tuned$results)
+print(rf_tuned$resample)
+print(rf_tuned$finalModel)
+if ("rf" %in% methods(class = "train")) print(varImp(rf_tuned))
+
+# Print detailed output for the Naive Bayes model
+if (exists("nb_tuned")) {
+  print(nb_tuned)
+  print(nb_tuned$bestTune)
+  print(nb_tuned$results)
+  print(nb_tuned$resample)
+  print(nb_tuned$finalModel)
+  if ("nb" %in% methods(class = "train")) print(varImp(nb_tuned))  # May not work with Naive Bayes, depends on method
+} else {
+  cat("Naive Bayes model training failed or the object 'nb_tuned' does not exist.\n")
+}
+
+# Print detailed output for the kNN model
+print(knn_tuned)
+print(knn_tuned$bestTune)
+print(knn_tuned$results)
+print(knn_tuned$resample)
+print(knn_tuned$finalModel)
+if ("knn" %in% methods(class = "train")) print(varImp(knn_tuned))
+
+# Print detailed output for the Decision Tree model
+print(dt_tuned)
+print(dt_tuned$bestTune)
+print(dt_tuned$results)
+print(dt_tuned$resample)
+print(dt_tuned$finalModel)
+if ("rpart" %in% methods(class = "train")) print(varImp(dt_tuned))
+
+
+```
+```{r}
+
+```
+
+```{r}
+# Best model summary
+print(svm_tuned$bestTune)
+print(rf_tuned$bestTune)
+print(nb_tuned$bestTune)
+print(knn_tuned$bestTune)
+print(dt_tuned$bestTune)
+
+# Plot the tuning results
+plot(svm_tuned)
+plot(rf_tuned)
+plot(nb_tuned)
+plot(knn_tuned)
+plot(dt_tuned)
+
+# Predict with the best-tuned model
+svm_predictions <- predict(svm_tuned, test_data)
+rf_predictions <- predict(rf_tuned, test_data)
+nb_predictions <- predict(nb_tuned, test_data)
+knn_predictions <- predict(knn_tuned, test_data)
+dt_predictions <- predict(dt_tuned, test_data)
+# Evaluate the performance with titles/labels
+
+# SVM Model
+cat("Confusion Matrix for SVM Model:\n")
+print(confusionMatrix(svm_predictions, test_data$GradeClass))
+cat("\n")  # Add an extra newline for spacing
+
+# Random Forest Model
+cat("Confusion Matrix for Random Forest Model:\n")
+print(confusionMatrix(rf_predictions, test_data$GradeClass))
+cat("\n")
+
+# Naive Bayes Model
+cat("Confusion Matrix for Naive Bayes Model:\n")
+print(confusionMatrix(nb_predictions, test_data$GradeClass))
+cat("\n")
+
+# k-Nearest Neighbors (kNN) Model
+cat("Confusion Matrix for k-Nearest Neighbors Model:\n")
+print(confusionMatrix(knn_predictions, test_data$GradeClass))
+cat("\n")
+
+# Decision Tree Model
+cat("Confusion Matrix for Decision Tree Model:\n")
+print(confusionMatrix(dt_predictions, test_data$GradeClass))
+cat("\n")
+
+# Example accuracies (replace with actual values)
+model_names <- c("SVM", "Random Forest", "Naive Bayes", "kNN", "Decision Tree")
+accuracies <- c(svm_cm$overall['Accuracy'], 
+                rf_cm$overall['Accuracy'], 
+                nb_cm$overall['Accuracy'], 
+                knn_cm$overall['Accuracy'], 
+                dt_cm$overall['Accuracy'])
+
+# Create a data frame for plotting
+accuracy_df <- data.frame(Model = model_names, Accuracy = accuracies)
+
+# Plot the accuracy comparison
+ggplot(accuracy_df, aes(x = reorder(Model, -Accuracy), y = Accuracy)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_text(aes(label = scales::percent(Accuracy)), vjust = -0.5) +
+  labs(title = "Model Accuracy Comparison", x = "Model", y = "Accuracy") +
+  theme_minimal()
+
+# Ensure caret is installed and loaded
+#install.packages("caret")
+library(caret)
+library(pROC)
+
+# Train the SVM model using caret with probability output
+svm_model <- train(GradeClass ~ ., data = train_data, 
+                   method = "svmRadial", 
+                   trControl = trainControl(method = "cv", classProbs = TRUE))
+
+# Predict probabilities on the test set
+svm_probabilities <- predict(svm_model, test_data, type = "prob")[, 2]  # Extracting the positive class probabilities
+
+# Generate ROC curve for SVM model
+svm_roc <- roc(test_data$GradeClass, svm_probabilities)
+
+# Train the Random Forest model
+rf_model <- train(GradeClass ~ ., data = train_data, 
+                  method = "rf", 
+                  trControl = trainControl(method = "cv", classProbs = TRUE))
+
+# Predict probabilities and generate ROC curve for Random Forest
+rf_probabilities <- predict(rf_model, test_data, type = "prob")[, 2]
+rf_roc <- roc(test_data$GradeClass, rf_probabilities)
+
+# Train the Naive Bayes model
+nb_model <- train(GradeClass ~ ., data = train_data, 
+                  method = "nb", 
+                  trControl = trainControl(method = "cv", classProbs = TRUE))
+
+# Predict probabilities and generate ROC curve for Naive Bayes
+nb_probabilities <- predict(nb_model, test_data, type = "prob")[, 2]
+nb_roc <- roc(test_data$GradeClass, nb_probabilities)
+
+# Train the k-NN model
+knn_model <- train(GradeClass ~ ., data = train_data, 
+                   method = "knn", 
+                   trControl = trainControl(method = "cv", classProbs = TRUE))
+
+# Predict probabilities and generate ROC curve for k-NN
+knn_probabilities <- predict(knn_model, test_data, type = "prob")[, 2]
+knn_roc <- roc(test_data$GradeClass, knn_probabilities)
+
+# Train the Decision Tree model
+dt_model <- train(GradeClass ~ ., data = train_data, 
+                  method = "rpart", 
+                  trControl = trainControl(method = "cv", classProbs = TRUE))
+
+# Predict probabilities and generate ROC curve for Decision Tree
+dt_probabilities <- predict(dt_model, test_data, type = "prob")[, 2]
+dt_roc <- roc(test_data$GradeClass, dt_probabilities)
+
+# Plot all ROC curves together
+plot(svm_roc, col = "blue", main = "ROC Curves for Different Models")
+lines(rf_roc, col = "green")
+lines(nb_roc, col = "red")
+lines(knn_roc, col = "purple")
+lines(dt_roc, col = "orange")
+
+# Add a legend to the plot
+legend("bottomright", legend = c("SVM", "Random Forest", "Naive Bayes", "k-NN", "Decision Tree"), 
+       col = c("blue", "green", "red", "purple", "orange"), lty = 1)
+
+
+legend("bottomright", legend = c("SVM", "Random Forest", "Naive Bayes", "kNN", "Decision Tree"), 
+       col = c("blue", "green", "red", "purple", "orange"), lty = 1)
+
+```
+```{r}
+# Load required libraries
+library(caret)
+library(e1071)  # SVM package
+library(randomForest)  # Random Forest package
+
+# Define the grid for tuning 'C' parameter for svmLinear
+svm_grid <- expand.grid(C = seq(0.01, 10, by = 0.5))
+
+# Define trainControl for cross-validation
+control <- trainControl(method = "cv", number = 10)
+
+# Train the SVM model using svmLinear method
+svm_tuned <- train(GradeClass ~ ., data = train_data,
+                   method = "svmLinear",
+                   tuneGrid = svm_grid,
+                   trControl = control)
+
+# Print the tuned model
+print(svm_tuned)
+
+
+# Define the grid for tuning 'mtry' parameter for randomForest
+rf_grid <- expand.grid(mtry = seq(2, 10, by = 1))  # Adjust mtry range as needed
+
+# Define trainControl for cross-validation
+control <- trainControl(method = "cv", number = 10)
+
+# Train the Random Forest model using rf method
+rf_tuned <- train(GradeClass ~ ., data = train_data,
+                  method = "rf",
+                  tuneGrid = rf_grid,
+                  trControl = control)
+
+# Print the tuned model
+print(rf_tuned)
+
+# Install and load the necessary package for SMOTE
+#install.packages("smotefamily")
+library(smotefamily)
+#install.packages("ROSE")
+library(ROSE)
+
+# Load necessary libraries
+library(smotefamily)
+
+
+# Ensure that the target variable (GradeClass) is a factor
+train_data$GradeClass <- as.factor(train_data$GradeClass)
+
+library(smotefamily)
+
+# Apply SMOTE and check its output
+smote_output <- SMOTE(X = train_data[, -which(names(train_data) == "GradeClass")], 
+                      target = train_data$GradeClass)
+
+# Check dimensions of the output
+print(dim(smote_output$data))
+print(length(smote_output$class))
+
+table(train_data$GradeClass)
+smote_output <- SMOTE(X = train_data[, -which(names(train_data) == "GradeClass")], 
+                      target = train_data$GradeClass, 
+                      K = 5, dup_size = 2)  # Increase duplication size
+print(dim(smote_output$data))
+print(length(smote_output$class))
+
+# Assuming the SMOTE output now works, combine data
+train_data_balanced <- data.frame(smote_output$data, GradeClass = smote_output$class)
+
+# Verify the combined data
+print(dim(train_data_balanced))
+
+
+# Example for Random Forest with SMOTE-balanced data
+rf_tuned <- train(GradeClass ~ ., data = train_data_balanced,
+                  method = "rf",
+                  tuneGrid = rf_grid,
+                  trControl = control)
+
+print(rf_tuned)
+
+
+
+```
+
+
+```{r}
+
+# Example data frame with cross-validation results
+# Extract cross-validation accuracies from the models
+svm_cv_accuracies <- svm_model$results$Accuracy
+rf_cv_accuracies <- rf_model$results$Accuracy
+nb_cv_accuracies <- nb_model$results$Accuracy
+knn_cv_accuracies <- knn_model$results$Accuracy
+dt_cv_accuracies <- dt_model$results$Accuracy
+
+min_length <- min(length(svm_cv_accuracies), length(rf_cv_accuracies), 
+                  length(nb_cv_accuracies), length(knn_cv_accuracies), 
+                  length(dt_cv_accuracies))
+
+cv_results <- data.frame(
+  Model = rep(model_names, each = min_length),
+  Accuracy = c(svm_cv_accuracies[1:min_length], rf_cv_accuracies[1:min_length],
+               nb_cv_accuracies[1:min_length], knn_cv_accuracies[1:min_length],
+               dt_cv_accuracies[1:min_length])
+)
+
+# Example for padding with NA
+max_length <- max(length(svm_cv_accuracies), length(rf_cv_accuracies), 
+                  length(nb_cv_accuracies), length(knn_cv_accuracies), 
+                  length(dt_cv_accuracies))
+
+cv_results2 <- data.frame(
+  Model = rep(model_names, each = max_length),
+  Accuracy = c(pad_with_na(svm_cv_accuracies, max_length),
+               pad_with_na(rf_cv_accuracies, max_length),
+               pad_with_na(nb_cv_accuracies, max_length),
+               pad_with_na(knn_cv_accuracies, max_length),
+               pad_with_na(dt_cv_accuracies, max_length))
+)
+
+print(cv_results)
+print(cv_results2)
+
+
+library(ggplot2)
+
+library(ggplot2)
+
+# Assuming `cv_results` is your data frame with cross-validation results
+
+# Plot the cross-validation accuracies for comparison, with colors
+ggplot(cv_results, aes(x = Model, y = Accuracy, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Cross-Validation Accuracies for Different Models",
+       y = "Accuracy",
+       x = "Model") +
+  scale_fill_brewer(palette = "Set3") # You can change the palette to any preferred one
+
+# Plot the cross-validation accuracies for comparison
+ggplot(cv_results2, aes(x = Model, y = Accuracy, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Cross-Validation Accuracies for Different Models",
+       y = "Accuracy",
+       x = "Model")+
+   scale_fill_brewer(palette = "Set2") # You can change the palette to any preferred one
+
+
+
+```
+
+
+```{r}
+# Load required library
+library(e1071)
+library(caret)
+
+# Split the data into training and testing sets
+set.seed(123)
+
+trainIndex <- createDataPartition(features_pca$GradeClass, p = .7, 
+                                  list = FALSE, 
+                                  times = 1)
+train_data <- features_pca[trainIndex, ]
+test_data  <- features_pca[-trainIndex, ]
+
+# Define the formula for the SVM models
+formula <- GradeClass ~ .
+
+# Train SVM with different kernels
+svm_linear <- svm(formula, data = train_data, kernel = "linear")
+svm_polynomial <- svm(formula, data = train_data, kernel = "polynomial")
+svm_rbf <- svm(formula, data = train_data, kernel = "radial")
+svm_sigmoid <- svm(formula, data = train_data, kernel = "sigmoid")
+
+# Make predictions on the test data
+predictions_linear <- predict(svm_linear, test_data)
+predictions_polynomial <- predict(svm_polynomial, test_data)
+predictions_rbf <- predict(svm_rbf, test_data)
+predictions_sigmoid <- predict(svm_sigmoid, test_data)
+
+# Since GradeClass is a categorical variable, use Accuracy instead of MSE
+accuracy_linear <- mean(predictions_linear == test_data$GradeClass)
+accuracy_polynomial <- mean(predictions_polynomial == test_data$GradeClass)
+accuracy_rbf <- mean(predictions_rbf == test_data$GradeClass)
+accuracy_sigmoid <- mean(predictions_sigmoid == test_data$GradeClass)
+
+# Print accuracy for each model
+cat("Accuracy for Linear Kernel: ", accuracy_linear, "\n")
+cat("Accuracy for Polynomial Kernel: ", accuracy_polynomial, "\n")
+cat("Accuracy for RBF Kernel: ", accuracy_rbf, "\n")
+cat("Accuracy for Sigmoid Kernel: ", accuracy_sigmoid, "\n")
+
+# Tune the SVM with RBF kernel using cross-validation
+tuned_svm <- tune(svm, formula, data = train_data, kernel = "radial",
+                  ranges = list(cost = 10^(-1:2), gamma = 10^(-2:1)))
+
+# Print the best model parameters
+print(tuned_svm$best.parameters)
+
+# Train the best model
+best_svm <- tuned_svm$best.model
+
+# Make predictions and evaluate the tuned model
+predictions_best <- predict(best_svm, test_data)
+accuracy_best <- mean(predictions_best == test_data$GradeClass)
+
+cat("Accuracy for Best Tuned SVM Model: ", accuracy_best, "\n")
+
+```
+
+
+```{r}
+# Assuming the accuracy values have already been calculated as follows:
+accuracy_values <- data.frame(
+  Model = c("Linear", "Polynomial", "RBF", "Sigmoid", "Best Tuned"),
+  Accuracy = c(accuracy_linear, accuracy_polynomial, accuracy_rbf, accuracy_sigmoid, accuracy_best)
+)
+
+# Load ggplot2 for plotting
+library(ggplot2)
+
+# Create a bar plot for the accuracy of each SVM model
+ggplot(accuracy_values, aes(x = Model, y = Accuracy, fill = Model)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Accuracy of SVM Models with Different Kernels",
+       x = "SVM Kernel",
+       y = "Accuracy") +
+  geom_text(aes(label = round(Accuracy, 3)), vjust = -0.5) +
+  theme(legend.position = "none")
+# Load required libraries
+library(caret)
+library(reshape2)
+
+# Function to plot confusion matrix heatmap
+plot_confusion_matrix <- function(cm, title) {
+  cm_table <- as.data.frame(cm$table)
+  cm_table <- melt(cm_table)
+  
+  ggplot(data = cm_table, aes(x = Reference, y = Prediction, fill = value)) +
+    geom_tile() +
+    geom_text(aes(label = sprintf("%d", value)), vjust = 1) +
+    scale_fill_gradient(low = "white", high = "blue") +
+    theme_minimal() +
+    ggtitle(title)
+}
+
+# Generate confusion matrices for each model
+cm_linear <- confusionMatrix(predictions_linear, test_data$GradeClass)
+cm_polynomial <- confusionMatrix(predictions_polynomial, test_data$GradeClass)
+cm_rbf <- confusionMatrix(predictions_rbf, test_data$GradeClass)
+cm_sigmoid <- confusionMatrix(predictions_sigmoid, test_data$GradeClass)
+cm_best <- confusionMatrix(predictions_best, test_data$GradeClass)
+
+# Plot heatmaps for each confusion matrix
+plot_confusion_matrix(cm_linear, "Confusion Matrix for Linear SVM")
+plot_confusion_matrix(cm_polynomial, "Confusion Matrix for Polynomial SVM")
+plot_confusion_matrix(cm_rbf, "Confusion Matrix for RBF SVM")
+plot_confusion_matrix(cm_sigmoid, "Confusion Matrix for Sigmoid SVM")
+plot_confusion_matrix(cm_best, "Confusion Matrix for Best Tuned SVM")
+
+# Function to convert confusion matrix into a data frame
+convert_cm_to_df <- function(cm, model_name) {
+  cm_table <- as.data.frame(cm$table)
+  cm_table <- melt(cm_table)
+  cm_table$Model <- model_name
+  return(cm_table)
+}
+
+# Convert confusion matrices to data frames
+cm_linear_df <- convert_cm_to_df(cm_linear, "Linear")
+cm_polynomial_df <- convert_cm_to_df(cm_polynomial, "Polynomial")
+cm_rbf_df <- convert_cm_to_df(cm_rbf, "RBF")
+cm_sigmoid_df <- convert_cm_to_df(cm_sigmoid, "Sigmoid")
+cm_best_df <- convert_cm_to_df(cm_best, "Best Tuned")
+
+# Combine all data frames
+combined_cm_df <- rbind(cm_linear_df, cm_polynomial_df, cm_rbf_df, cm_sigmoid_df, cm_best_df)
+
+
+```
+```{r}
+ggplot(accuracy_values, aes(x = Model, y = Accuracy)) +
+  geom_point(size = 4, color = "blue") +
+  geom_line(aes(group = 1), linetype = "dashed", color = "blue") +
+  theme_minimal() +
+  labs(title = "Accuracy of SVM Models with Different Kernels",
+       x = "SVM Kernel",
+       y = "Accuracy") +
+  geom_text(aes(label = round(Accuracy, 3)), vjust = -0.5) +
+  theme(legend.position = "none")
+
+ggplot(accuracy_values, aes(x = Model, y = Accuracy)) +
+  geom_segment(aes(x = Model, xend = Model, y = 0, yend = Accuracy), color = "blue") +
+  geom_point(size = 4, color = "blue") +
+  theme_minimal() +
+  labs(title = "Accuracy of SVM Models with Different Kernels",
+       x = "SVM Kernel",
+       y = "Accuracy") +
+  geom_text(aes(label = round(Accuracy, 3)), vjust = -0.4) +
+  theme(legend.position = "none")
+ggplot(accuracy_values, aes(x = Accuracy, y = Model, fill = Model)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Accuracy of SVM Models with Different Kernels",
+       x = "Accuracy",
+       y = "SVM Kernel") +
+  geom_text(aes(label = round(Accuracy, 3)), hjust = -0.01) +
+  theme(legend.position = "none")
+
+ggplot(accuracy_values, aes(x = Model, y = Accuracy, fill = Model)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Accuracy of SVM Models with Different Kernels",
+       x = "SVM Kernel",
+       y = "Accuracy") +
+  geom_text(aes(label = round(Accuracy, 3)), vjust = -0.5) +
+  theme(legend.position = "none") +
+  facet_wrap(~Model)
+library(fmsb)
+
+# Prepare the data
+radar_data <- rbind(rep(max(accuracy_values$Accuracy), ncol(accuracy_values)-1), 
+                    rep(min(accuracy_values$Accuracy), ncol(accuracy_values)-1),
+                    accuracy_values$Accuracy)
+rownames(radar_data) <- c("Max", "Min", as.character(accuracy_values$Model))
+
+radarchart(radar_data, axistype = 1,
+           pcol = "blue", pfcol = rgb(0.2, 0.5, 0.5, 0.5),
+           plwd = 2, cglcol = "grey", cglty = 1, axislabcol = "grey",
+           caxislabels = seq(min(accuracy_values$Accuracy), max(accuracy_values$Accuracy), 0.05),
+           cglwd = 0.8, vlcex = 0.8)
+
+```
+
+```{r}
+#creating the model 
+
+
+#setting seed for consistency 
+set.seed(111)
+
+#doing an 70/30 split for testing and training
+sample_index_nb <- sample(seq_len(nrow(student.data)), size = 0.7 * nrow(student.data))
+train_data_nb <- student.data[sample_index, ]
+test_data_nb <- student.data[-sample_index, ]
+
+
+# discretizing GPA into categories
+train_data_nb$GPA_cat <- cut(train_data_nb$GPA, breaks = 3, labels = c("Below Average", "Average", "Above Average"))
+test_data_nb$GPA_cat <- cut(test_data_nb$GPA, breaks = 3, labels = c("Below Average", "Average", "Above Average"))
+student.data$GPA_cat <- cut(student.data$GPA, breaks = 3, labels = c("Below Average", "Average", "Above Average"))
+
+
+
+# training the model
+nb_model <- naiveBayes(GPA_cat ~ ., data = train_data_nb, laplace = 1)
+
+
+# using test data for predictions
+nb_predictions <- predict(nb_model, test_data_nb)
+
+
+#create visual 
+
+plot(nb_predictions, ylab='GPA', main='Naive Bayes Plot' )
+
+#using confusion matrix to check 
+
+
+# creating the confusion matrix
+conf_matrix_nb <- confusionMatrix(nb_predictions, test_data_nb$GPA_cat)
+print(conf_matrix_nb)
+
+
+#plotting results
+ggplot(train_data_nb, aes(x = StudyTimeWeekly, y = Absences, color = GPA_cat)) +
+  geom_point() +
+  stat_ellipse(type = "norm")
+
+ggplot(train_data_nb, aes(x = GPA, y = Absences, color = GPA_cat)) +
+  geom_point() +
+  stat_ellipse(type = "norm")
+
+
+
+#looking at accuracy
+nb_accuracy <- conf_matrix_nb$overall['Accuracy']
+print(paste("Naive Bayes Accuracy: ", nb_accuracy))
+
+# Discretizing factor vars 
+
+student.data$Age <- as.numeric(as.character(student.data$Age))
+student.data$Gender <- as.numeric(as.character(student.data$Gender))
+student.data$Ethnicity <- as.numeric(as.character(student.data$Ethnicity))
+student.data$ParentalEducation <- as.numeric(as.character(student.data$ParentalEducation))
+student.data$StudyTimeWeekly <- as.numeric(as.character(student.data$StudyTimeWeekly))
+student.data$Absences <- as.numeric(as.character(student.data$Absences))
+student.data$Tutoring <- as.numeric(as.character(student.data$Tutoring))
+student.data$ParentalSupport <- as.numeric(as.character(student.data$ParentalSupport))
+
+str(student.data)
+
+# Perform cross-validation on the Naive Bayes model with 5 folds
+suppressWarnings({ cv_model <- train(GPA_cat ~ ., data = student.data, method = "nb", trControl = trainControl(method = "cv", number = 5))
+})
+
+# Print the results of cross-validation
+print(cv_model)
+
+
+#trying with more folds
+suppressWarnings({ cv_model2 <- train(GPA_cat ~ ., data = student.data, method = "nb", trControl = trainControl(method = "cv", number = 10))
+})
+
+
+# Print the results of cross-validation
+print(cv_model2)
+
+
+#trying again with more folds
+suppressWarnings({ cv_model3 <- train(GPA_cat ~ ., data = student.data, method = "nb", trControl = trainControl(method = "cv", number = 20))
+})
+
+# Print the results of cross-validation
+print(cv_model3)
+
+
+```
+The Naive Bayes accuracy was only at 92% when variables were converted to factors. This is close to the accuracy calculated in the confusion matrix and the cross validation. 
+
+Confusion Matrix interpretation: 
+Overall the model accurately classifies the data with an overall accuracy of 92%. The Prevalence section shows there is the most data in the 'Average' category. The Average category seems to perform higher in most of the categories which makes sense because we have the most information on that category. 
+
+The k-fold CV was ran with 5-fold and produced an accuracy of 93% when Kernel smoothing is used. Increasing the folds to 10 did not increase accuracy significantly. With 10-folds, the accuracy was at 93.4% and 93.3% with 5. Increasing the folds to 20 did not significantly improve the accuracy, it was 93.6%.
+
+
+```
+
+
+
+
+
+
+
+
+
